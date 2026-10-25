@@ -9,8 +9,8 @@ async function run() {
   const rows = await sql`SELECT DISTINCT ticker FROM holdings WHERE type IN ('stock','etf') AND ticker IS NOT NULL AND ticker <> ''`;
   const quotes = await Promise.all(rows.map(async (r) => [r.ticker, await getQuote(r.ticker)]));
   let updated = 0;
-  for (const [ticker, price] of quotes) {
-    if (price) { await sql`UPDATE holdings SET price=${price}, price_updated_at=now() WHERE ticker=${ticker}`; updated++; }
+  for (const [ticker, q] of quotes) {
+    if (q) { await sql`UPDATE holdings SET price=${q.price}, change_pct=${q.change}, price_updated_at=now() WHERE ticker=${ticker}`; updated++; }
   }
   const trm = await getTRM();
   if (trm) {

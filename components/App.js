@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { TY, calc, days, ea, today } from '../lib/calc';
+import { TY, calc, days, dailyRate, today } from '../lib/calc';
 
 const COL = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)'];
 const NUM = ['units', 'avg', 'price', 'principal', 'balance', 'invested', 'rate'];
-const EMPTY = { type: 'stock', platform: '', name: '', ticker: '', cur: 'USD' };
+const EMPTY = { type: 'stock', platform: '', name: '', ticker: '', cur: 'USD', rate_type: 'EA' };
 const pc = (p, c) => (c ? ((p / c) * 100).toFixed(2) + '%' : '-');
 const cls = (n) => (n >= 0 ? 'up' : 'dn');
 
@@ -46,6 +46,7 @@ export default function App() {
   async function save() {
     const o = { ...form };
     if (!o.name || !o.platform) return alert('Completa nombre y plataforma');
+    if (o.type === 'savings' && !o.balance_date) o.balance_date = today();
     NUM.forEach((k) => { o[k] = o[k] === '' || o[k] == null ? null : +o[k]; });
     await fetch(o.id ? `/api/holdings/${o.id}` : '/api/holdings', { method: o.id ? 'PUT' : 'POST', body: JSON.stringify(o) });
     setForm(null); load();
@@ -88,13 +89,14 @@ export default function App() {
     const L = items.filter((x) => x.type === t);
     if (!L.length) return <div className="c empty">Aún no tienes posiciones aquí.</div>;
     const S = tot(L);
-    const acts = (x) => <td><button onClick={() => setForm({ ...x })}>✎</button> <button className="x" onClick={() => del(x.id)}>✕</button></td>;
+    const acts = (x) => <td><button onClick={() => setForm(x.type === 'savings' ? { ...x, balance: +calc(x).v.toFixed(2), balance_date: today() } : { ...x })}>✎</button> <button className="x" onClick={() => del(x.id)}>✕</button></td>;
     let head, rows;
     if (t === 'stock' || t === 'etf') {
-      head = ['Activo', 'Plataforma', 'Unid.', 'Prom. compra', 'Precio actual', 'Valor', 'G/P', 'G/P %'];
+      head = ['Activo', 'Plataforma', 'Unid.', 'Prom. compra', 'Precio actual', 'Hoy', 'Valor', 'G/P', 'G/P %'];
       rows = L.map((x) => { const k = calc(x); return (
         <tr key={x.id}><td><b>{x.ticker}</b> {x.name}</td><td>{x.platform}</td><td>{x.units}</td><td>{x.avg}</td>
           <td><input style={{ width: 100, textAlign: 'right', padding: '4px 6px' }} type="number" step="any" defaultValue={x.price} key={x.price} onBlur={(e) => +e.target.value !== x.price && setPrice(x, e.target.value)} /></td>
+          <td className={x.change_pct == null ? 'k' : cls(x.change_pct)}>{x.change_pct == null ? '-' : (x.change_pct >= 0 ? '+' : '') + x.change_pct.toFixed(2) + '%'}</td>
           <td>{money(k.v, x.cur)}</td><td className={cls(k.p)}>{money(k.p, x.cur)}</td><td className={cls(k.p)}>{pc(k.p, k.c)}</td>{acts(x)}</tr>); });
     } else if (t === 'cdt') {
       head = ['CDT', 'Plataforma', 'Capital', 'Tasa E.A.', 'Vence', 'Valor hoy', 'Ganancia', 'Al vencimiento'];
@@ -102,10 +104,10 @@ export default function App() {
         <tr key={x.id}><td>{x.name}</td><td>{x.platform}</td><td>{money(x.principal, x.cur)}</td><td>{x.rate}%</td><td>{x.end_date}</td>
           <td>{money(k.v, x.cur)}</td><td className="up">{money(k.p, x.cur)}</td><td>{money(fin, x.cur)}</td>{acts(x)}</tr>); });
     } else {
-      head = ['Cuenta', 'Plataforma', 'Saldo', 'Tasa E.A.', 'Rend. diario', 'Rend. mensual est.', 'Nota'];
+      head = ['Cuenta', 'Plataforma', 'Saldo hoy', 'Tasa', 'Rend. diario', 'Ganancia', 'Rend. mensual est.', 'Nota'];
       rows = L.map((x) => { const k = calc(x); return (
-        <tr key={x.id}><td>{x.name}</td><td>{x.platform}</td><td>{money(x.balance, x.cur)}</td><td>{x.rate}%</td>
-          <td className="up">{money(k.d, x.cur)}</td><td className="up">{money(k.v * (Math.pow(1 + ea(x.rate), 30) - 1), x.cur)}</td><td>{x.note}</td>{acts(x)}</tr>); });
+        <tr key={x.id}><td>{x.name}</td><td>{x.platform}</td><td>{money(k.v, x.cur)}</td><td>{x.rate}% {x.rate_type === 'NOMINAL' ? 'nom.' : 'E.A.'}</td>
+          <td className="up">{money(k.d, x.cur)}</td><td className={cls(k.p)}>{money(k.p, x.cur)}</td><td className="up">{money(k.v * (Math.pow(1 + dailyRate(x), 30) - 1), x.cur)}</td><td>{x.note}</td>{acts(x)}</tr>); });
     }
     return (<>
       <div className="g"><div className="c"><div className="k">Valor</div><div className="v">{money(S.v)}</div></div>
@@ -131,6 +133,8 @@ export default function App() {
       {msg && <p className="k" style={{ marginTop: -6 }}>{msg}</p>}
       <div className="tabs">{[['res', 'Resumen'], ['stock', 'Acciones'], ['etf', 'ETF'], ['cdt', 'CDT'], ['savings', 'Ahorros']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       {tab === 'res' ? <Resumen /> : <Lista t={tab} />}
+      {(tab === 'stock' || tab === 'etf') && <p className="k">Precios de Finnhub. Con el mercado de EE. UU. cerrado (fines de semana y fuera de horario) muestran el último cierre y la columna Hoy no cambia.</p>}
+      {(tab === 'cdt' || tab === 'savings') && <p className="k">Los intereses se calculan por día transcurrido: el valor aumenta solo cada día, sin que tengas que editar nada.</p>}
       {form && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setForm(null)}>
           <div className="c">
@@ -147,8 +151,9 @@ export default function App() {
                 <F k="principal" label="Capital invertido" type="number" /><F k="rate" label="Tasa E.A. (%)" type="number" />
                 <F k="start_date" label="Inicio" type="date" /><F k="end_date" label="Vencimiento" type="date" /></>)}
               {form.type === 'savings' && (<>
-                <F k="balance" label="Saldo actual" type="number" /><F k="invested" label="Aportado (opcional)" type="number" />
-                <F k="rate" label="Tasa E.A. (%)" type="number" /></>)}
+                <F k="balance" label="Saldo (a la fecha indicada)" type="number" /><F k="balance_date" label="Fecha del saldo" type="date" />
+                <F k="invested" label="Aportado (opcional)" type="number" /><F k="rate" label="Tasa (%)" type="number" />
+                <div className="full"><label>Tipo de tasa</label><select value={form.rate_type || 'EA'} onChange={set('rate_type')}><option value="EA">Efectiva anual (E.A.)</option><option value="NOMINAL">Nominal (diaria = tasa/365)</option></select></div></>)}
               <F k="note" label="Nota" cls="full" />
             </div>
             <div className="bar" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
