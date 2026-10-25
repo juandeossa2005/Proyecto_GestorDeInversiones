@@ -7,7 +7,7 @@ export default function Login() {
   async function go(e) {
     e.preventDefault();
     const r = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ password: pw }) });
-    if (r.ok) location.href = '/'; else setErr('Contraseña incorrecta');
+    if (r.ok) location.href = '/'; else setErr((await r.json()).error || 'Error');
   }
   return (
     <div className="w" style={{ maxWidth: 380, paddingTop: 80 }}>
